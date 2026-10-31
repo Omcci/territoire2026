@@ -18,3 +18,10 @@ models/*.json
 .DS_Store
 .idea/
 .vscode/
+
+# Frontend (Phase 2)
+node_modules/
+dist/
+*.tsbuildinfo
+public/france_communes.pmtiles
+public/data/
