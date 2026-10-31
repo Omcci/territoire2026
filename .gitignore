@@ -1,0 +1,20 @@
+# Territoires 2100 — generated artifacts (reproductibles via le pipeline)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Données générées (plusieurs dizaines de Mo, régénérables en < 1 min)
+data/geo/*.geojson
+data/geo/*.pmtiles
+data/geo/*.parquet
+data/metrics/
+models/*.onnx
+models/*.json
+!data/.gitkeep
+!models/.gitkeep
+
+.DS_Store
+.idea/
+.vscode/

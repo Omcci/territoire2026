@@ -1,0 +1,12 @@
+# Territoires 2100 — Phase 1 (Python 3.11+)
+numpy>=1.26
+polars>=1.0
+scikit-learn>=1.4
+# XGBoost < 3 : le format de booster 3.x n'est pas encore lu par onnxmltools.
+xgboost>=2.0,<3.0
+onnx>=1.16
+onnxruntime>=1.18
+skl2onnx>=1.17
+onnxmltools>=1.12
+duckdb>=1.0
+pyarrow>=16

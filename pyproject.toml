@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "territoires-2100"
+version = "0.1.0"
+description = "Territoires 2100 — Phase 1 : pipeline Big Data, GeoParquet partitionné, PMTiles et downscaling ML (8 km -> 100 m)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "polars>=1.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "scikit-learn>=1.4",
+    "xgboost>=2.0,<3.0",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+    "skl2onnx>=1.17",
+    "onnxmltools>=1.12",
+]
+duckdb = ["duckdb>=1.0"]
+all = [
+    "scikit-learn>=1.4",
+    "xgboost>=2.0,<3.0",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+    "skl2onnx>=1.17",
+    "onnxmltools>=1.12",
+    "duckdb>=1.0",
+    "pyarrow>=16",
+]
+
+[project.scripts]
+territoires-gold = "pipeline.generate_gold_data:main"
+territoires-train = "ml.train_downscaler:main"
+
+[tool.setuptools]
+packages = ["pipeline", "ml"]
