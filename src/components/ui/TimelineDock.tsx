@@ -1,207 +1,101 @@
-import { useEffect } from 'react';
-import {
-  BookOpen,
-  Compass,
-  Droplets,
-  Flame,
-  Layers,
-  Pause,
-  Play,
-  Waves,
-  type LucideIcon,
-} from 'lucide-react';
-import {
-  INDICATORS,
-  INDICATOR_LABELS,
-  PIVOT_YEARS,
-  SCENARIOS,
-  SCENARIO_LABELS,
-  type Indicator,
-  type Scenario,
-} from '../../lib/metricsTypes';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarClock, ChevronDown } from 'lucide-react';
+import { PIVOT_YEARS, type Indicator } from '../../lib/metricsTypes';
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/useAppStore';
 
-const INDICATOR_ICONS: Record<Indicator, LucideIcon> = {
-  heatwave: Flame,
-  rga: Layers,
-  flooding: Waves,
-  water_stress: Droplets,
-};
+/** Couches observées : aucun horizon projeté, la frise ne doit pas en suggérer un. */
+const OBSERVED_INDICATORS: ReadonlySet<Indicator> = new Set(['catnat', 'prix_immo', 'cher_expose', 'services', 'voiture_menages', 'voiture_travail', 'transports_communs', 'fragilites']);
 
-const PLAY_INTERVAL_MS = 1800;
-
-/** Dock temporel Liquid Glass — îlot flottant centré en bas du viewport. */
+/**
+ * Frise des horizons (Exploration, couches simulées uniquement).
+ * Fermée : un bouton compact indiquant l'horizon sélectionné.
+ * Ouverte : les horizons disponibles, sans lecture automatique.
+ * Elle ne règle que les données affichées — jamais un effet visuel
+ * global sur la carte. Pour les données observées à millésime unique,
+ * elle n'apparaît pas : la période réelle est dans la légende.
+ */
 export default function TimelineDock() {
   const mode = useAppStore((s) => s.mode);
-  const scenario = useAppStore((s) => s.scenario);
   const indicator = useAppStore((s) => s.indicator);
   const year = useAppStore((s) => s.year);
-  const isPlaying = useAppStore((s) => s.isPlaying);
-  const metricsStatus = useAppStore((s) => s.metricsStatus);
-  const lastQueryMs = useAppStore((s) => s.lastQueryMs);
-  const setMode = useAppStore((s) => s.setMode);
-  const setScenario = useAppStore((s) => s.setScenario);
-  const setIndicator = useAppStore((s) => s.setIndicator);
   const setYear = useAppStore((s) => s.setYear);
-  const togglePlaying = useAppStore((s) => s.togglePlaying);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const yearIndex = Math.max(0, PIVOT_YEARS.indexOf(year));
-
-  // Animation timeline : avance d'un horizon pivot toutes les 1,8 s, en boucle.
+  // Repli au clic extérieur.
   useEffect(() => {
-    if (!isPlaying) return;
-    const timer = window.setInterval(() => {
-      const state = useAppStore.getState();
-      const idx = PIVOT_YEARS.indexOf(state.year);
-      const next = PIVOT_YEARS[(idx + 1) % PIVOT_YEARS.length] ?? 2025;
-      state.setYear(next);
-    }, PLAY_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [isPlaying]);
+    if (!open) return;
+    const onDown = (event: MouseEvent): void => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open ]);
+
+  // Une couche observée ou le mode Récit referme la frise.
+  useEffect(() => {
+    setOpen(false);
+  }, [indicator, mode]);
+
+  if (mode !== 'EXPLORE') return null;
+  if (OBSERVED_INDICATORS.has(indicator)) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-20 flex justify-center px-4">
-      <div className="pointer-events-auto w-full max-w-3xl rounded-[28px] border border-white/[0.07] bg-black/35 shadow-[0_16px_40px_rgba(0,0,0,0.6)] backdrop-blur-2xl">
-        {/* Rangée haute : mode · statut · scénarios */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 pt-3.5">
-          <div className="flex rounded-full bg-white/5 p-0.5" role="tablist" aria-label="Mode d’affichage">
-            {(
-              [
-                { value: 'STORY', label: 'Récit', Icon: BookOpen },
-                { value: 'EXPLORE', label: 'Exploration', Icon: Compass },
-              ] as const
-            ).map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={mode === value}
-                onClick={() => setMode(value)}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium transition-colors',
-                  mode === value ? 'bg-white/15 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200',
-                )}
-              >
-                <Icon className="h-3 w-3" aria-hidden strokeWidth={1.75} />
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div
-            className="flex items-center gap-1.5 font-mono text-[10px] text-zinc-500"
-            aria-live="polite"
-            title="Dernière requête DuckDB-WASM"
-          >
-            <span
-              className={cn(
-                'inline-block h-1.5 w-1.5 rounded-full',
-                metricsStatus === 'error' && 'bg-red-400/80',
-                metricsStatus === 'loading' && 'animate-pulse bg-amber-200/80',
-                metricsStatus === 'ready' && 'bg-emerald-300/70',
-                metricsStatus === 'idle' && 'bg-zinc-600',
-              )}
-            />
-            {metricsStatus === 'ready' && lastQueryMs !== null
-              ? `DuckDB · ${lastQueryMs.toFixed(0)} ms`
-              : metricsStatus === 'loading'
-                ? 'DuckDB…'
-                : metricsStatus === 'error'
-                  ? 'DuckDB en erreur'
-                  : 'DuckDB'}
-          </div>
-
-          <div className="ml-auto flex rounded-full bg-white/5 p-0.5" role="group" aria-label="Scénario climatique">
-            {SCENARIOS.map((s: Scenario) => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={scenario === s}
-                onClick={() => setScenario(s)}
-                className={cn(
-                  'rounded-full px-2.5 py-1 font-mono text-[10px] font-medium transition-colors',
-                  scenario === s ? 'bg-white/15 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200',
-                )}
-              >
-                {SCENARIO_LABELS[s]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Rangée centrale : lecture + timeline */}
-        <div className="flex items-center gap-3 px-5 pt-2">
-          <button
-            type="button"
-            onClick={togglePlaying}
-            aria-label={isPlaying ? 'Pause' : 'Lecture'}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-zinc-100 transition-colors hover:bg-white/20"
-          >
-            {isPlaying ? (
-              <Pause className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
-            ) : (
-              <Play className="ml-0.5 h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
-            )}
-          </button>
-          <div className="min-w-0 flex-1">
-            <input
-              type="range"
-              min={0}
-              max={PIVOT_YEARS.length - 1}
-              step={1}
-              value={yearIndex}
-              aria-label="Horizon temporel"
-              onChange={(e) => {
-                const next = PIVOT_YEARS[Number(e.target.value)];
-                if (next !== undefined) setYear(next);
-              }}
-              className="territoires-range w-full"
-            />
-            <div className="flex justify-between font-mono text-[10px] text-zinc-500">
+    <div ref={rootRef} className="pointer-events-none fixed bottom-6 left-[3.25rem] z-30 select-none sm:left-14">
+      {open ? (
+        <div className="glass-panel frise-entree pointer-events-auto flex items-center gap-3 rounded-2xl px-4 py-3">
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs font-semibold text-slate-700" id="frise-horizons-label">
+              Simulation horizon
+            </p>
+            <div className="flex items-center gap-1" role="group" aria-labelledby="frise-horizons-label">
               {PIVOT_YEARS.map((y) => (
                 <button
                   key={y}
                   type="button"
-                  onClick={() => setYear(y)}
+                  aria-pressed={y === year}
+                  onClick={() => {
+                    setYear(y);
+                    setOpen(false);
+                  }}
                   className={cn(
-                    'px-1 transition-colors',
-                    y === year ? 'font-semibold text-zinc-100' : 'hover:text-zinc-300',
+                    'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                    y === year
+                      ? 'bg-slate-900 font-semibold text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900',
                   )}
                 >
                   {y}
                 </button>
               ))}
             </div>
+            <p className="text-[11px] text-slate-500">
+              Only the layer&apos;s simulated values change. No global visual effect.
+            </p>
           </div>
-          <div className="w-14 shrink-0 text-right font-mono text-xl font-light tabular-nums text-zinc-50">
-            {year}
-          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close the time horizons"
+            className="shrink-0 rounded-full bg-slate-100 p-1.5 text-slate-500 transition-colors hover:bg-slate-200"
+          >
+            <ChevronDown className="h-4 w-4" aria-hidden />
+          </button>
         </div>
-
-        {/* Rangée basse : aléas */}
-        <div className="flex flex-wrap items-center gap-1.5 px-5 pb-3.5 pt-1" role="group" aria-label="Aléa climatique">
-          {INDICATORS.map((ind: Indicator) => {
-            const Icon = INDICATOR_ICONS[ind];
-            const active = indicator === ind;
-            return (
-              <button
-                key={ind}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setIndicator(ind)}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors',
-                  active ? 'bg-white/15 text-white shadow-sm' : 'bg-white/5 text-zinc-400 hover:text-zinc-200',
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
-                {INDICATOR_LABELS[ind]}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          aria-label={`Current horizon ${year} — Open the time horizons`}
+          className="glass-chip pointer-events-auto flex items-center gap-2 rounded-full py-2 pl-3 pr-3.5 transition-colors hover:bg-white/70"
+        >
+          <CalendarClock className="h-4 w-4 text-slate-500" aria-hidden />
+          <span className="text-xs font-medium text-slate-600">Horizon</span>
+          <span className="font-mono text-sm font-bold tabular-nums text-slate-900">{year}</span>
+        </button>
+      )}
     </div>
   );
 }

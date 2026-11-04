@@ -1,0 +1,70 @@
+{
+  "source": "public/data/geo/communes.geojson (contours Etalab/IGN simplifiés)",
+  "perimetre": "France métropolitaine + Corse",
+  "communes": 35191,
+  "temoins": {
+    "92024": {
+      "nom": "Clichy",
+      "lon": 2.30575,
+      "lat": 48.90353,
+      "point": [
+        2.30834,
+        48.90883
+      ]
+    },
+    "93055": {
+      "nom": "Pantin",
+      "lon": 2.40776,
+      "lat": 48.89859,
+      "point": [
+        2.40759,
+        48.89852
+      ]
+    },
+    "33063": {
+      "nom": "Bordeaux",
+      "lon": -0.57409,
+      "lat": 44.85781,
+      "point": [
+        -0.56,
+        44.86558
+      ]
+    },
+    "75056": {
+      "nom": "Paris",
+      "lon": 2.34282,
+      "lat": 48.85646,
+      "point": [
+        2.32012,
+        48.85729
+      ]
+    },
+    "93066": {
+      "nom": "Saint-Denis",
+      "lon": 2.35884,
+      "lat": 48.92933,
+      "point": [
+        2.35774,
+        48.92883
+      ]
+    },
+    "69123": {
+      "nom": "Lyon",
+      "lon": 4.83639,
+      "lat": 45.75514,
+      "point": [
+        4.82721,
+        45.76362
+      ]
+    },
+    "13055": {
+      "nom": "Marseille",
+      "lon": 5.42127,
+      "lat": 43.29317,
+      "point": [
+        5.44073,
+        43.29377
+      ]
+    }
+  }
+}
