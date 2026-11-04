@@ -1,111 +1,130 @@
-# Territoires 2100 — Phase 1
+# Territoires 2100
 
-**Pipeline Big Data, GeoParquet & Machine Learning de downscaling**
+**An interactive map for reading a changing France, municipality by municipality.**
 
-Plateforme d'aide à la décision territoriale croisant projections climatiques (1950-2100) et vulnérabilités sur les ~35 000 communes de France, en paradigme **Cloud-Native Geospatial** : aucun serveur cartographique, uniquement des fichiers plats sur stockage objet (S3 / Cloudflare R2) lus par HTTP Range Requests.
+Territoires 2100 is a territorial and climate storytelling application covering
+some 35,000 French municipalities. It combines guided stories, free map
+exploration, and per-municipality decision briefs, with a strict editorial
+rule: observed data, derived readings, and demonstration simulations are never
+presented as the same thing.
 
-> ⚠️ **Données de démonstration 100 % synthétiques**, mais géographiquement cohérentes (littoral atlantique, couloir rhodanien, massifs alpins, bassin parisien…). Elles valident l'architecture, les formats et les contrats de schéma avant l'ingestion des vraies sources (DRIAS / Euro-CORDEX, Admin Express IGN, Corine Land Cover, INSEE).
+The interface is in English by default.
+
+## What you can do
+
+- **Discover 19 guided chapters** — extreme heat, clay shrink-swell, flooding,
+  drought, natural-disaster history, property prices, essential services,
+  car dependency, and a cross-cutting fragility synthesis.
+- **Explore freely** — pick any indicator, overlay additional layers, reorder
+  them, and adjust their opacity.
+- **Open any municipality** — click a commune on the map and read a short
+  brief: the active indicator's main measure, its period, what it does and
+  does not measure, and its sources. The clicked feature, the INSEE code,
+  the brief, and the camera always refer to the same municipality.
+
+The application opens on a neutral map: no layer is imposed before the user
+chooses between the stories and free exploration.
+
+## Indicators and data provenance
+
+| Indicator | Nature | Source | Coverage |
+|---|---|---|---|
+| Extreme heat, clay shrink-swell, flooding, drought & water | **Demonstration simulation** | Project model — *not an official scientific projection* | Three emissions pathways, 1990-2100 horizons |
+| Natural disaster history | Observed | GASPAR / Géorisques (CatNat declarations) | 1982-2025 |
+| Property prices | Observed | DGFiP DVF transactions | 2023-2025 |
+| Essential services | Observed | INSEE, Base permanente des équipements | 1 January 2025 |
+| Households with a car; commuting by car / public transport | Observed | INSEE population census (RP) | 2023 |
+| Property prices and disaster history | Derived (exploratory) | DVF × GASPAR cross-reading | Municipal level only |
+| Cumulative territorial fragilities | Derived (documented count) | GASPAR + BPE + RP | Observations 2023-2025 |
+
+The fragility synthesis is a **simple equal-weight count**, not a risk score:
+a dimension is flagged when a municipality records at least 10 CatNat
+declarations since 1982, at most 2 of 7 essential-service categories locally,
+or at least 80% of employed workers commuting by car. Each municipality brief
+shows the three dimensions with their observed values, rules, and statuses.
+Property prices are shown for context and never enter the count.
+
+### Data honesty rules
+
+- No invented values: where a source is silent or the sample is too small
+  (fewer than 30 sales, households, or workers), the interface says so
+  explicitly instead of substituting an estimate.
+- CatNat declarations are administrative recognitions, not a probability of
+  future disaster. Service data measure presence in the municipality, not
+  distance travelled. Observed indicators have a single vintage and never
+  display fake future horizons.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Gen["Génération (Phase 1, ce repo)"]
-        G[pipeline/generate_gold_data.py<br/>Polars + NumPy] --> GEO[data/geo/communes.geojson]
-        G --> REF[data/geo/communes_reference.parquet]
-        G --> GP["data/metrics/scenario=*/indicator=*.parquet<br/>GeoParquet partitionné"]
-        ML[ml/train_downscaler.py<br/>XGBoost + CV spatiale] --> ONNX[models/downscaler_france.onnx]
-    end
-    GEO -->|pipeline/build_pmtiles.sh<br/>tippecanoe| PM[data/geo/france_communes.pmtiles]
-    PM -->|S3 / R2 + Range Requests| MAP[MapLibre GL JS<br/>pmtiles://]
-    GP -->|DuckDB / DuckDB-WASM| APP[Application cliente]
-    REF --> ML
-    ONNX -->|onnxruntime-web| APP
-    MAP -->|jointure code_insee| APP
-```
+- **Frontend**: React 18 + Vite + TypeScript, Tailwind CSS, Zustand.
+- **Map**: MapLibre GL with PMTiles geometries; DuckDB-WASM queries
+  partitioned Parquet indicators in the browser — no map server.
+- **Geography**: a real commune reference (metropolitan France + Corsica)
+  rebuilt from contours already in the repository; the INSEE code, kept as
+  a string, is the single join key everywhere.
 
-Deux formats complémentaires, un seul identifiant de jointure : **`code_insee`**.
-
-| Artefact | Rôle | Contenu |
-|---|---|---|
-| `france_communes.pmtiles` | Géométrie pure, multi-échelle Z0-Z12 | Uniquement `code_insee` + `nom` |
-| `data/metrics/scenario={ssp}/indicator={ind}.parquet` | Métriques & séries temporelles | Schéma contractuel ci-dessous |
-| `communes_reference.parquet` | Dimension communale | Centroïde, département, covariables IGN-like |
-| `downscaler_france.onnx` | Downscaling 8 km → 100 m | Pipeline imputer + scaler + XGBoost |
-
-## Démarrage rapide
+## Getting started
 
 ```bash
-python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
-brew install tippecanoe            # macOS (ou voir felt/tippecanoe)
-
-make gold      # ~35 000 communes, GeoJSON + 12 partitions Parquet (3 SSP x 4 aléas)
-make pmtiles   # france_communes.pmtiles via tippecanoe
-make train     # downscaler + export ONNX validé
-make verify    # contrôles bout-en-bout DuckDB + ONNX + PMTiles
-# ou : make all
+npm install
+npm run dev        # development server
+npm run build      # typecheck + production build
+npm run preview    # serve the production build
 ```
 
-## Contrat de données GeoParquet
+Checks:
 
-Partitionnement Hive : `data/metrics/scenario={ssp126|ssp245|ssp585}/indicator={rga|heatwave|flooding|water_stress}.parquet` — 4 horizons pivots (1990, 2025, 2050, 2100) par fichier.
-
-| Colonne | Type | Description |
-|---|---|---|
-| `code_insee` | VARCHAR (dictionnaire) | Clé de jointure avec les PMTiles |
-| `year` | INT16 | Année (1950-2100 ; pivots en démo) |
-| `hazard_raw` | FLOAT32 | Valeur brute type DRIAS (jours > 35 °C, indice RGA 0-10, …) |
-| `hazard_local_100m` | FLOAT32 | Aléa micro-affiné par le modèle ML |
-| `exposure_score` | FLOAT32 | Densité bâti, maisons individuelles, population (0-1) |
-| `vulnerability_score` | FLOAT32 | Précarité énergétique, part des +65 ans (0-1) |
-| `composite_risk_score` | FLOAT32 | Score composite normalisé (0-1) |
-
-Score composite (aléa normalisé 0-1 par indicateur, percentiles 1/99) :
-
-\[
-\text{Composite} = (\text{Aléa}^{1.2} \times 0.45) + (\text{Exposition} \times 0.30) + (\text{Vulnérabilité} \times 0.25)
-\]
-
-Écriture optimisée pour DuckDB en client : compression **ZSTD**, **statistiques de colonnes activées** et dictionnaire sur `code_insee` → *predicate pushdown* et HTTP Range Requests sans téléchargement complet.
-
-```sql
--- Top 20 des communes à risque canicule en 2050, tous scénarios, sans serveur :
--- (l'indicateur se choisit par le chemin ; `scenario` vient du partitionnement Hive)
-SELECT scenario, code_insee, round(composite_risk_score, 3) AS risque
-FROM read_parquet('data/metrics/*/indicator=heatwave.parquet', hive_partitioning = true)
-WHERE year = 2050
-ORDER BY composite_risk_score DESC LIMIT 20;
+```bash
+npm run typecheck
+npm test           # node:test suites under tests/
 ```
 
-## Downscaling ML (8 km → 100 m)
+## Regenerating the data
 
-`ml/train_downscaler.py` entraîne une régression spatiale (XGBoost, repli RandomForest) :
+Generated artifacts (Parquet partitions, PMTiles, reference files) are
+git-ignored and reproducible. Raw source downloads live under
+`data/sources/` (not committed). With a Python environment in `.venv`:
 
-- **Features** : aléa régional DRIAS 8 km, altitude MNT, pente, rugosité, distance aux cours d'eau, distance au littoral, imperméabilisation, canopée.
-- **Target** : température / aléa local à 100 m (gradient adiabatique −0,65 °C/100 m, îlot de chaleur urbain, brise marine, effet canopée).
-- **Validation spatiale par blocs 1°×1°** (`SpatialBlockKFold`) + hold-out en damier + contrôle `GroupKFold` par département : aucune fuite par autocorrélation spatiale.
-- **Export ONNX obligatoire** (`models/downscaler_france.onnx`) : imputer embarqué dans le graphe, scaler replié dans les seuils des arbres par équivalence affine (exact). Validé par comparaison `sklearn` vs `onnxruntime` sur points continus jamais vus (mean|Δ| ~1e-4, max borné par le flip d'un arbre unique en float32). Inférence possible côté client via onnxruntime-web/WASM. XGBoost est pinné `< 3.0` (format de booster non encore lu par onnxmltools).
-- L'ordre des 8 features est **contractuel** (voir `models/training_report.json`).
-
-## PMTiles
-
-`pipeline/build_pmtiles.sh` appelle tippecanoe avec `--include=code_insee --include=nom` (contrat attributaire minimal garanti côté tuiles), `--detect-shared-borders`, simplification dynamique Z0-Z12 (`--simplification=4 --simplify-only-low-zooms`), `--drop-densest-as-needed --extend-zooms-if-still-dropping` et `--no-tiny-polygon-reduction-at-maximum-zoom` (chaque commune reste interrogeable à Z12).
-
-Publication type : `aws s3 cp data/geo/france_communes.pmtiles s3://territoires-2100/geo/` puis lecture MapLibre via le protocole `pmtiles://`.
-
-## Structure
-
-```
-pipeline/generate_gold_data.py   # communes synthétiques cohérentes + GeoParquet partitionné
-pipeline/build_pmtiles.sh        # tippecanoe -> france_communes.pmtiles
-ml/train_downscaler.py           # régression spatiale, CV par blocs, export ONNX
-scripts/verify.py                # contrôles bout-en-bout (DuckDB, ONNX, PMTiles)
-data/  models/                   # artefacts générés (gitignorés, régénérables via make)
+```bash
+.venv/bin/python scripts/build_catnat_partitions.py      # GASPAR -> CatNat
+.venv/bin/python scripts/build_dvf_catnat_partitions.py  # DVF x CatNat
+.venv/bin/python scripts/build_bpe_partitions.py         # INSEE BPE -> services
+.venv/bin/python scripts/build_mobilite_partitions.py    # INSEE RP -> mobility
+.venv/bin/python scripts/build_synthese_partitions.py    # fragility count
+.venv/bin/python scripts/build_real_reference.py         # commune reference
+node scripts/verify_geo_selection.mjs                    # click/selection concordance
 ```
 
-## Limites de la Phase 1 & suite
+Each pipeline writes a `*_metadata.json` file documenting its source,
+licence, method, and limitations.
 
-- Centroïdes/polygones communaux synthétiques → Phase 2 : ingestion **Admin Express IGN** (vraies géométries) et tuilage identique.
-- `hazard_raw` simulé par gradients physiques → Phase 2 : ingestion **DRIAS / Euro-CORDEX** en COG, agrégation zonale par commune.
-- `hazard_local_100m` de démo = pseudo-downscaling paramétrique → remplacé par les prédictions du modèle ONNX entraîné sur observations (stations Météo-France + Landsat LST).
-- Métropole + Corse uniquement ; extension DROM par ajout de polygones départementaux dans `DEPARTMENTS`.
+## Repository layout
+
+```
+src/          React application (map, stories, panels, briefs, store)
+src/lib/      Indicator definitions, palettes, brief builders
+scripts/      Reproducible data pipelines (Python) and verifiers
+tests/        node:test suites (data honesty, geography, briefs, stories)
+pipeline/ ml/ Phase 1 synthetic-data and downscaling experiments
+data/         Generated artifacts (git-ignored, reproducible)
+```
+
+## Known limitations
+
+- The four climate layers remain demonstration simulations; converting them
+  to an official projection source (e.g. DRIAS) is future work.
+- DVF covers sold homes only and excludes Alsace-Moselle and Mayotte;
+  communal geometries are simplified contours, suitable at the map's zooms,
+  not parcel-level.
+- The synthesis juxtaposes close but distinct vintages (2023, 2025,
+  1982-2025); it is a reading of recent observed states, not a snapshot at
+  a single date.
+- The external basemap (CARTO) is a runtime dependency; if it is
+  unavailable, local data still renders on a neutral background with a
+  discreet notice.
+
+## Licences of sources
+
+GASPAR / Géorisques, DGFiP DVF, INSEE BPE and RP data are published under
+Licence Ouverte / Licence Ouverte 2.0. Official names and dataset
+identifiers are preserved as-is in the interface.
